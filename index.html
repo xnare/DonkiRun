@@ -167,8 +167,16 @@ function spawnObstacle(){
     obstacles.push({type:'duck',flying,x:W+60,y:flying?ground-120:ground-40,w:46,h:40,phase:Math.random()*6,bob:0});
   }
 }
+// Maximale erreichbare Höhe der Esel-Oberkante über dem Boden (aus der Sprungphysik).
+// Doppelsprung-Scheitel ~208 + Körperhöhe 56 = ~264. Wir lassen etwas Reserve.
+const REACH = 244;
 function spawnFlutter(){
-  flutters.push({x:W+40,y:ground-80-Math.random()*(H*0.35),w:34,h:30,phase:Math.random()*6,base:0,amp:18+Math.random()*20,c:BFLY_COLORS[(Math.random()*BFLY_COLORS.length)|0],got:false});
+  // Mittelpunkt so wählen, dass der Schmetterling inkl. Schwingung erreichbar bleibt.
+  const amp = 16 + Math.random()*16;              // 16..32
+  const minC = 70;                                 // knapp über Kopfhöhe im Stand
+  const maxC = REACH - amp - 8;                    // oberste Schwingung bleibt in Reichweite
+  const center = minC + Math.random()*(maxC - minC);
+  flutters.push({x:W+40, y:ground - center, w:34, h:30, phase:Math.random()*6, base:0, amp, c:BFLY_COLORS[(Math.random()*BFLY_COLORS.length)|0], got:false});
 }
 
 // ---------- loop ----------
@@ -213,7 +221,7 @@ function update(dt){
   flutters.forEach(f=>{
     f.x-=speed*0.82*dt; f.phase+=0.12*dt;
     const fy=f.y+Math.sin(f.phase)*f.amp;
-    if(!f.got&&hit(dhb,{x:f.x,y:fy,w:f.w,h:f.h})){
+    if(!f.got&&hit(dhb,{x:f.x-8,y:fy-8,w:f.w+16,h:f.h+16})){
       f.got=true; score+=1; levelScore+=1;
       for(let i=0;i<12;i++)particles.push({x:f.x+f.w/2,y:fy+f.h/2,vx:(Math.random()-.5)*6,vy:(Math.random()-.5)*6,life:28,c:f.c,r:2+Math.random()*3});
       // Level-Aufstieg
