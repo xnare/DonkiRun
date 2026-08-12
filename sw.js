@@ -1,4 +1,4 @@
-const CACHE = 'donki-run-v1';
+const CACHE = 'donki-run-v2';
 const ASSETS = [
   './',
   './index.html',
