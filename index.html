@@ -111,20 +111,27 @@ let running=false, score=0, best=+localStorage.getItem('eselBest')||0, dist=0, s
 let level=0, levelScore=0;
 const startScr=document.getElementById('start'), overScr=document.getElementById('over');
 
-// Länder-Level: jeweils eigene Palette + Landmarke. Punkte pro Level bis zum Aufstieg.
+// Länder-Level: eigene Palette, Landmarke und Schwierigkeit.
+// hippoP = Hippo-Wahrscheinlichkeit, spd = Tempo-Deckel, gap = Hindernis-Grundabstand
 const LEVELS=[
-  { name:'Österreich', goal:8,
+  { name:'Österreich', goal:8, hippoP:0.20, spd:8.0, gap:150,
     sky:['#7ba8c9','#cfe0c4'], hill:'#6d9152', ground:'#5a7d4a', groundDk:'#42603a',
     bush:'#537445', cloud:'rgba(238,235,226,.82)', landmark:'alps' },
-  { name:'London', goal:10,
+  { name:'London', goal:10, hippoP:0.24, spd:8.6, gap:145,
     sky:['#8a93a0','#c2c4c0'], hill:'#7a8a86', ground:'#6b6f68', groundDk:'#50544e',
     bush:'#5f6b60', cloud:'rgba(220,222,224,.85)', landmark:'bigben' },
-  { name:'Norwegen', goal:12,
+  { name:'Norwegen', goal:12, hippoP:0.28, spd:9.2, gap:140,
     sky:['#9fc4d8','#e8f1f4'], hill:'#8fb0b8', ground:'#e4ecef', groundDk:'#b9c9cf',
     bush:'#7c9aa0', cloud:'rgba(245,249,251,.9)', landmark:'fjord' },
-  { name:'Japan', goal:14,
+  { name:'Japan', goal:14, hippoP:0.32, spd:9.8, gap:135,
     sky:['#e6a9b8','#f6e0d6'], hill:'#c98a9a', ground:'#d9a98f', groundDk:'#b3826a',
     bush:'#c47d8e', cloud:'rgba(250,238,240,.88)', landmark:'fuji' },
+  { name:'Happy Birthday', goal:16, hippoP:0.28, spd:9.6, gap:140,
+    sky:['#b57edc','#ffd9ec'], hill:'#c98fd8', ground:'#e6b8d8', groundDk:'#c48fb8',
+    bush:'#d68fc4', cloud:'rgba(255,244,250,.9)', landmark:'party' },
+  { name:'Love Mode', goal:99, hippoP:0.72, spd:11.0, gap:105,
+    sky:['#ff8fb0','#ffd9e6'], hill:'#e87ba0', ground:'#f4b8d0', groundDk:'#d88fb0',
+    bush:'#ef9abc', cloud:'rgba(255,240,246,.9)', landmark:'hearts' },
 ];
 
 const donkey={x:0,y:0,vy:0,w:64,h:56,jumps:0,onGround:true,legPhase:0};
@@ -141,11 +148,10 @@ function reset(){
 // ---------- input ----------
 function jump(){
   if(!running)return;
-  if(donkey.jumps<2){
-    donkey.vy = donkey.jumps===0 ? -12.5 : -10.8;
-    donkey.jumps++; donkey.onGround=false;
-    for(let i=0;i<6;i++)particles.push({x:donkey.x,y:donkey.y+donkey.h,vx:(Math.random()-.5)*3,vy:Math.random()*2,life:20,c:'#c9a56b',r:3});
-  }
+  // Immer springen erlaubt – auch mehrfach in der Luft (macht es leichter).
+  donkey.vy = donkey.onGround ? -12.5 : -11.2;
+  donkey.jumps++; donkey.onGround=false;
+  for(let i=0;i<6;i++)particles.push({x:donkey.x,y:donkey.y+donkey.h,vx:(Math.random()-.5)*3,vy:Math.random()*2,life:20,c:'#c9a56b',r:3});
 }
 cv.addEventListener('pointerdown',e=>{e.preventDefault();jump();});
 addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();jump();}});
@@ -157,27 +163,49 @@ function start(){startScr.classList.add('hidden');overScr.classList.add('hidden'
 // ---------- spawn ----------
 const BFLY_COLORS=['#ff5d8f','#ffd93d','#6ce5c8','#a06bff','#ff914d','#5db4ff'];
 function spawnObstacle(){
-  const hippo=Math.random()<0.28;
+  const L=LEVELS[level];
+  const deathMode = L.landmark==='hearts';
+  const hippo=Math.random()<L.hippoP;
   if(hippo){
-    // Hippo kommt dem Esel ENTGEGEN – schaut nach links, bewegt sich schneller
+    // Hippo kommt dem Esel ENTGEGEN – schaut nach links, bewegt sich etwas schneller
     obstacles.push({type:'hippo',x:W+80,y:ground-70,w:120,h:70,phase:0});
+    // Death Mode: manchmal eine kleine Hippo-Herde direkt hintereinander
+    if(deathMode && Math.random()<0.5){
+      const n = 1 + (Math.random()<0.4?1:0);      // 1–2 zusätzliche
+      for(let i=1;i<=n;i++) obstacles.push({type:'hippo',x:W+80+i*150,y:ground-70,w:120,h:70,phase:0});
+    }
   }else{
     // Ente: entweder am Boden watschelnd oder tief fliegend
-    const flying=Math.random()<0.4;
+    const flying=Math.random()<0.35;
     obstacles.push({type:'duck',flying,x:W+60,y:flying?ground-120:ground-40,w:46,h:40,phase:Math.random()*6,bob:0});
   }
 }
-// Maximale erreichbare Höhe der Esel-Oberkante über dem Boden (aus der Sprungphysik).
-// Doppelsprung-Scheitel ~208 + Körperhöhe 56 = ~264. Wir lassen etwas Reserve.
-const REACH = 244;
+// Schmetterlinge bewusst niedrig halten – die meisten schon mit einem einzelnen
+// Sprung (~120px) fangbar, keiner höher als eine bequeme Sprunghöhe.
 function spawnFlutter(){
-  // Mittelpunkt so wählen, dass der Schmetterling inkl. Schwingung erreichbar bleibt.
-  const amp = 16 + Math.random()*16;              // 16..32
-  const minC = 70;                                 // knapp über Kopfhöhe im Stand
-  const maxC = REACH - amp - 8;                    // oberste Schwingung bleibt in Reichweite
+  const amp = 12 + Math.random()*12;               // 12..24 sanftere Schwingung
+  const minC = 55;                                  // knapp über Kopfhöhe im Stand
+  const maxC = 150;                                 // klar innerhalb eines Sprungs
   const center = minC + Math.random()*(maxC - minC);
   flutters.push({x:W+40, y:ground - center, w:34, h:30, phase:Math.random()*6, base:0, amp, c:BFLY_COLORS[(Math.random()*BFLY_COLORS.length)|0], got:false});
 }
+
+// Sicherheitsabstand am rechten Rand. Schmetterling<->Hindernis bleibt immer groß,
+// damit man nach dem Fangen nie direkt auf einem Hindernis landet. Der Abstand
+// zwischen zwei Hindernissen darf je nach Level enger sein (Death Mode = Herden).
+const SAFE_FLUTTER = 460;
+function areaClear(forFlutter){
+  const rightX = W + 40;
+  const L=LEVELS[level];
+  // Abstand zum nächsten Schmetterling immer groß halten
+  for(const f of flutters){ if(!f.got && Math.abs(f.x - rightX) < SAFE_FLUTTER) return false; }
+  // Abstand zu Hindernissen: für neue Schmetterlinge groß, für neue Hindernisse level-abhängig
+  const obGap = forFlutter ? SAFE_FLUTTER : L.gap + 90;
+  for(const o of obstacles){ if(Math.abs(o.x - rightX) < obGap) return false; }
+  return true;
+}
+function trySpawnObstacle(){ if(areaClear(false)){ spawnObstacle(); return true; } return false; }
+function trySpawnFlutter(){ if(areaClear(true)){ spawnFlutter(); return true; } return false; }
 
 // ---------- loop ----------
 let last=performance.now();
@@ -193,7 +221,8 @@ function frame(now){
 requestAnimationFrame(frame);
 
 function update(dt){
-  dist+=speed*dt; speed=Math.min(11, speed+0.0009*dt);
+  const L=LEVELS[level];
+  dist+=speed*dt; speed=Math.min(L.spd, speed+0.0007*dt);
 
   // donkey physics
   donkey.vy+=0.62*dt; donkey.y+=donkey.vy*dt;
@@ -201,15 +230,21 @@ function update(dt){
   donkey.legPhase+=speed*0.06*dt;
 
   spawnT-=dt;
-  if(spawnT<=0){spawnObstacle();spawnT=Math.max(60, 130-speed*4) + Math.random()*40;}
+  if(spawnT<=0){
+    const ok=trySpawnObstacle();
+    spawnT = ok ? (Math.max(L.gap, 170-speed*4) + Math.random()*50) : 18;
+  }
   flyT-=dt;
-  if(flyT<=0){spawnFlutter();flyT=70+Math.random()*70;}
+  if(flyT<=0){
+    const ok=trySpawnFlutter();
+    flyT = ok ? (45+Math.random()*45) : 20;
+  }
 
   const dhb={x:donkey.x+10,y:donkey.y+6,w:donkey.w-22,h:donkey.h-10};
 
   obstacles.forEach(o=>{
     // Hippos kommen dem Esel entgegen -> zusätzlicher Eigenspeed
-    const extra = o.type==='hippo' ? 2.6 : 0;
+    const extra = o.type==='hippo' ? 2.0 : 0;
     o.x-=(speed+extra)*dt; o.phase+=0.2*dt;
     if(o.type==='duck'&&o.flying)o.y=(ground-120)+Math.sin(o.phase)*10;
     if(o.type==='hippo')o.phase+=0.05*dt;
@@ -344,7 +379,53 @@ function drawLandmark(kind){
     ctx.fillStyle='rgba(250,244,246,.8)';
     ctx.beginPath();ctx.moveTo(x-48,ground-218);ctx.quadraticCurveTo(x,ground-272,x+48,ground-218);
     ctx.quadraticCurveTo(x+20,ground-232,x,ground-228);ctx.quadraticCurveTo(x-20,ground-232,x-48,ground-218);ctx.fill();
+  } else if(kind==='party'){
+    // Girlande aus Wimpeln quer über den Himmel
+    const cols=['#ff5d8f','#ffd93d','#6ce5c8','#a06bff','#5db4ff'];
+    ctx.strokeStyle='rgba(120,90,120,.5)';ctx.lineWidth=2;
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=10){const y=70+Math.sin(x*0.02)*14;if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.stroke();
+    for(let i=0;i*46<W;i++){
+      const x=20+i*46, y=70+Math.sin(x*0.02)*14;
+      ctx.fillStyle=cols[i%cols.length];ctx.globalAlpha=.75;
+      ctx.beginPath();ctx.moveTo(x-11,y);ctx.lineTo(x+11,y);ctx.lineTo(x,y+22);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    // ein paar Ballons
+    [[0.2,150,'#ff5d8f'],[0.42,120,'#ffd93d'],[0.7,160,'#6ce5c8'],[0.85,130,'#a06bff']].forEach(([p,h,c])=>{
+      const x=W*p, y=ground-h;
+      ctx.fillStyle=c;ctx.globalAlpha=.55;
+      ctx.beginPath();ctx.ellipse(x,y,18,23,0,0,7);ctx.fill();
+      ctx.strokeStyle=c;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,y+22);ctx.lineTo(x+4,y+70);ctx.stroke();
+      ctx.globalAlpha=1;
+    });
+  } else if(kind==='hearts'){
+    // rosa Hügel-Silhouette
+    ctx.fillStyle='rgba(220,120,160,.5)';
+    ctx.beginPath();ctx.moveTo(0,ground);
+    for(let x=0;x<=W;x+=30)ctx.lineTo(x,ground-90-Math.sin(x*0.02+2)*40);
+    ctx.lineTo(W,ground);ctx.fill();
+    // großer Herz-Mond
+    ctx.fillStyle='rgba(255,120,150,.7)';drawHeart(W*0.78,H*0.15,30);
+    // schwebende Herzen, sanft scrollend
+    const hx=(dist*0.2)%(W+120);
+    const spots=[[0.12,120],[0.3,180],[0.5,140],[0.66,200],[0.85,150]];
+    ctx.fillStyle='rgba(255,180,205,.45)';
+    spots.forEach(([p,h],i)=>{
+      let x=((W*p - hx) % (W+120) + (W+120)) % (W+120);
+      drawHeart(x, ground-h + Math.sin(dist*0.02+i)*6, 12+ (i%3)*4);
+    });
   }
+}
+
+// kleines Herz zeichnen, zentriert auf (cx,cy), Größe s
+function drawHeart(cx,cy,s){
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s*0.9);
+  ctx.bezierCurveTo(cx - s*1.3, cy - s*0.4, cx - s*0.5, cy - s*1.1, cx, cy - s*0.35);
+  ctx.bezierCurveTo(cx + s*0.5, cy - s*1.1, cx + s*1.3, cy - s*0.4, cx, cy + s*0.9);
+  ctx.fill();
 }
 
 function drawDonkey(){
@@ -433,11 +514,20 @@ function drawHippo(o){
   ctx.fillStyle='#6f5484';ctx.beginPath();ctx.arc(34,34,2.4,0,7);ctx.arc(44,34,2.4,0,7);ctx.fill();
   // ears
   ctx.fillStyle='#8a6ea0';ctx.beginPath();ctx.arc(6,4,6,0,7);ctx.arc(24,2,6,0,7);ctx.fill();
-  // eyes
-  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(12,14,5,0,7);ctx.arc(26,14,5,0,7);ctx.fill();
-  ctx.fillStyle='#33291f';ctx.beginPath();ctx.arc(13,15,2.4,0,7);ctx.arc(27,15,2.4,0,7);ctx.fill();
-  // angry brow
-  ctx.strokeStyle='#5f4574';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(6,6);ctx.lineTo(16,10);ctx.moveTo(32,10);ctx.lineTo(22,6);ctx.stroke();
+  // eyes – im Love Mode Herz-Augen, sonst normale Augen mit Zorn-Braue
+  if(LEVELS[level].landmark==='hearts'){
+    ctx.fillStyle='#ff4d7a';
+    drawHeart(13,15,6);
+    drawHeart(27,15,6);
+    // kleines Glanzlicht
+    ctx.fillStyle='rgba(255,255,255,.8)';
+    ctx.beginPath();ctx.arc(11,12,1.4,0,7);ctx.arc(25,12,1.4,0,7);ctx.fill();
+  }else{
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(12,14,5,0,7);ctx.arc(26,14,5,0,7);ctx.fill();
+    ctx.fillStyle='#33291f';ctx.beginPath();ctx.arc(13,15,2.4,0,7);ctx.arc(27,15,2.4,0,7);ctx.fill();
+    // angry brow
+    ctx.strokeStyle='#5f4574';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(6,6);ctx.lineTo(16,10);ctx.moveTo(32,10);ctx.lineTo(22,6);ctx.stroke();
+  }
   ctx.restore();
   ctx.restore();
 }
