@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Donki Run</title>
+
+<!-- Als App zum iPhone-Homescreen -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Donki Run">
+<meta name="theme-color" content="#2f3d2a">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<style>
+  :root{
+    --sky-top:#6b8fb5; --sky-bot:#b8c9a8;
+    --grass:#5a7d4a; --grass-dark:#42603a;
+    --ink:#2b2620; --sun:#e8d5a0;
+    --accent:#c25a3a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;background:#2f3d2a;font-family:'Trebuchet MS',system-ui,sans-serif;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;width:100%;height:100%;touch-action:none;}
+
+  .overlay{
+    position:fixed;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;
+    color:var(--ink);padding:24px;gap:20px;
+    background:linear-gradient(160deg, rgba(43,38,32,.55), rgba(66,96,58,.6));
+    backdrop-filter:blur(3px);
+  }
+  .hidden{display:none!important;}
+  .title{
+    font-size:clamp(40px,13vw,92px);font-weight:900;letter-spacing:-3px;line-height:.92;
+    color:#f2ede2;text-shadow:0 2px 0 rgba(0,0,0,.3),0 10px 26px rgba(0,0,0,.35);
+    font-style:italic;
+  }
+  .title span{
+    display:block;font-style:normal;font-size:.26em;letter-spacing:6px;font-weight:700;
+    color:var(--sun);margin-top:10px;text-shadow:none;text-transform:uppercase;
+  }
+  .card{
+    background:rgba(28,24,20,.72);border:1px solid rgba(242,237,226,.15);border-radius:14px;
+    padding:20px 24px;max-width:340px;box-shadow:0 14px 40px rgba(0,0,0,.35);
+  }
+  .card p{font-size:14.5px;line-height:1.7;color:#e6dfd2;}
+  .card b{color:#f2ede2;}
+  .card .emoji{font-size:20px;}
+  .btn{
+    border:none;cursor:pointer;font-family:inherit;font-weight:800;
+    font-size:clamp(18px,5.5vw,24px);color:#f2ede2;background:var(--accent);
+    padding:15px 46px;border-radius:8px;letter-spacing:2px;text-transform:uppercase;
+    box-shadow:0 5px 0 #8f3f28,0 12px 24px rgba(0,0,0,.3);
+    transition:transform .08s, box-shadow .08s;
+  }
+  .btn:active{transform:translateY(4px);box-shadow:0 1px 0 #8f3f28,0 4px 10px rgba(0,0,0,.3);}
+  .final{font-size:clamp(30px,9vw,54px);font-weight:900;color:#f2ede2;text-shadow:0 2px 0 rgba(0,0,0,.3);}
+  .final small{display:block;font-size:.36em;font-weight:700;color:var(--sun);letter-spacing:4px;text-transform:uppercase;margin-top:8px;}
+  .hint{color:#e6dfd2;font-size:12px;letter-spacing:3px;text-transform:uppercase;opacity:.7;font-weight:700;}
+  .banner{
+    position:fixed;top:34%;left:50%;transform:translate(-50%,-50%) scale(.8);
+    padding:18px 34px;border-radius:12px;background:rgba(28,24,20,.82);
+    border:1px solid rgba(242,237,226,.2);color:#f2ede2;text-align:center;
+    font-weight:900;font-size:clamp(24px,7vw,40px);letter-spacing:1px;
+    box-shadow:0 14px 40px rgba(0,0,0,.4);opacity:0;pointer-events:none;
+    transition:opacity .4s, transform .4s;
+  }
+  .banner.show{opacity:1;transform:translate(-50%,-50%) scale(1);}
+  .banner small{display:block;font-size:.4em;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:var(--sun);margin-top:6px;}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game"></canvas></div>
+<div id="banner" class="banner hidden"></div>
+
+<div id="start" class="overlay">
+  <div class="title">It's Donki Time<span>ein esel geht auf reisen</span></div>
+  <div class="card">
+    <p><span class="emoji">🫏</span> Tippe zum <b>Springen</b> – nochmal tippen für den Doppelsprung.</p>
+    <p><span class="emoji">🦆</span> Weiche <b>Enten</b> und <b>Riesen-Hippos</b> aus.</p>
+    <p><span class="emoji">🦋</span> Nur gefangene <b>Schmetterlinge</b> geben Punkte.</p>
+  </div>
+  <button class="btn" id="startBtn">Los geht's</button>
+  <div class="hint">Tippen = Springen</div>
+</div>
+
+<div id="over" class="overlay hidden">
+  <div class="final" id="finalScore">0<small>Punkte</small></div>
+  <div class="card"><p id="overMsg">Der Esel ist gestolpert!</p></div>
+  <button class="btn" id="againBtn">Nochmal</button>
+  <div class="hint" id="best">Bestwert: 0</div>
+</div>
+
+<script>
+const cv=document.getElementById('game'), ctx=cv.getContext('2d');
+let W,H,DPR,ground;
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);
+  W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  ground=H*0.82;
+}
+addEventListener('resize',resize); resize();
+
+// ---------- state ----------
+let running=false, score=0, best=+localStorage.getItem('eselBest')||0, dist=0, speed, spawnT, flyT;
+let level=0, levelScore=0;
+const startScr=document.getElementById('start'), overScr=document.getElementById('over');
+
+// Länder-Level: jeweils eigene Palette + Landmarke. Punkte pro Level bis zum Aufstieg.
+const LEVELS=[
+  { name:'Österreich', goal:8,
+    sky:['#7ba8c9','#cfe0c4'], hill:'#6d9152', ground:'#5a7d4a', groundDk:'#42603a',
+    bush:'#537445', cloud:'rgba(238,235,226,.82)', landmark:'alps' },
+  { name:'London', goal:10,
+    sky:['#8a93a0','#c2c4c0'], hill:'#7a8a86', ground:'#6b6f68', groundDk:'#50544e',
+    bush:'#5f6b60', cloud:'rgba(220,222,224,.85)', landmark:'bigben' },
+  { name:'Norwegen', goal:12,
+    sky:['#9fc4d8','#e8f1f4'], hill:'#8fb0b8', ground:'#e4ecef', groundDk:'#b9c9cf',
+    bush:'#7c9aa0', cloud:'rgba(245,249,251,.9)', landmark:'fjord' },
+  { name:'Japan', goal:14,
+    sky:['#e6a9b8','#f6e0d6'], hill:'#c98a9a', ground:'#d9a98f', groundDk:'#b3826a',
+    bush:'#c47d8e', cloud:'rgba(250,238,240,.88)', landmark:'fuji' },
+];
+
+const donkey={x:0,y:0,vy:0,w:64,h:56,jumps:0,onGround:true,legPhase:0};
+let obstacles=[], flutters=[], particles=[], clouds=[], bushes=[];
+
+function reset(){
+  score=0; dist=0; speed=4.6; spawnT=90; flyT=90; level=0; levelScore=0;
+  obstacles=[]; flutters=[]; particles=[];
+  donkey.x=W*0.22; donkey.y=ground-donkey.h; donkey.vy=0; donkey.jumps=0; donkey.onGround=true;
+  clouds=[]; for(let i=0;i<4;i++)clouds.push({x:Math.random()*W,y:40+Math.random()*H*0.25,s:0.4+Math.random()*0.5,r:26+Math.random()*24});
+  bushes=[]; for(let i=0;i<6;i++)bushes.push({x:Math.random()*W,s:0.5+Math.random()*0.6});
+}
+
+// ---------- input ----------
+function jump(){
+  if(!running)return;
+  if(donkey.jumps<2){
+    donkey.vy = donkey.jumps===0 ? -12.5 : -10.8;
+    donkey.jumps++; donkey.onGround=false;
+    for(let i=0;i<6;i++)particles.push({x:donkey.x,y:donkey.y+donkey.h,vx:(Math.random()-.5)*3,vy:Math.random()*2,life:20,c:'#c9a56b',r:3});
+  }
+}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();jump();});
+addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();jump();}});
+
+document.getElementById('startBtn').onclick=start;
+document.getElementById('againBtn').onclick=start;
+function start(){startScr.classList.add('hidden');overScr.classList.add('hidden');reset();running=true;showLevelBanner();}
+
+// ---------- spawn ----------
+const BFLY_COLORS=['#ff5d8f','#ffd93d','#6ce5c8','#a06bff','#ff914d','#5db4ff'];
+function spawnObstacle(){
+  const hippo=Math.random()<0.28;
+  if(hippo){
+    // Hippo kommt dem Esel ENTGEGEN – schaut nach links, bewegt sich schneller
+    obstacles.push({type:'hippo',x:W+80,y:ground-70,w:120,h:70,phase:0});
+  }else{
+    // Ente: entweder am Boden watschelnd oder tief fliegend
+    const flying=Math.random()<0.4;
+    obstacles.push({type:'duck',flying,x:W+60,y:flying?ground-120:ground-40,w:46,h:40,phase:Math.random()*6,bob:0});
+  }
+}
+function spawnFlutter(){
+  flutters.push({x:W+40,y:ground-80-Math.random()*(H*0.35),w:34,h:30,phase:Math.random()*6,base:0,amp:18+Math.random()*20,c:BFLY_COLORS[(Math.random()*BFLY_COLORS.length)|0],got:false});
+}
+
+// ---------- loop ----------
+let last=performance.now();
+function frame(now){
+  const dt=Math.min((now-last)/16.67,2.2); last=now;
+  ctx.clearRect(0,0,W,H);
+  drawBackground(dt);
+  if(running)update(dt);
+  drawFlutters(); drawObstacles(); drawDonkey(); drawParticles();
+  if(running)drawHUD();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function update(dt){
+  dist+=speed*dt; speed=Math.min(11, speed+0.0009*dt);
+
+  // donkey physics
+  donkey.vy+=0.62*dt; donkey.y+=donkey.vy*dt;
+  if(donkey.y>=ground-donkey.h){donkey.y=ground-donkey.h;donkey.vy=0;donkey.jumps=0;donkey.onGround=true;}
+  donkey.legPhase+=speed*0.06*dt;
+
+  spawnT-=dt;
+  if(spawnT<=0){spawnObstacle();spawnT=Math.max(60, 130-speed*4) + Math.random()*40;}
+  flyT-=dt;
+  if(flyT<=0){spawnFlutter();flyT=70+Math.random()*70;}
+
+  const dhb={x:donkey.x+10,y:donkey.y+6,w:donkey.w-22,h:donkey.h-10};
+
+  obstacles.forEach(o=>{
+    // Hippos kommen dem Esel entgegen -> zusätzlicher Eigenspeed
+    const extra = o.type==='hippo' ? 2.6 : 0;
+    o.x-=(speed+extra)*dt; o.phase+=0.2*dt;
+    if(o.type==='duck'&&o.flying)o.y=(ground-120)+Math.sin(o.phase)*10;
+    if(o.type==='hippo')o.phase+=0.05*dt;
+    const ob={x:o.x+6,y:o.y+6,w:o.w-12,h:o.h-10};
+    if(hit(dhb,ob))gameOver(o.type);
+  });
+  obstacles=obstacles.filter(o=>o.x>-160);
+
+  flutters.forEach(f=>{
+    f.x-=speed*0.82*dt; f.phase+=0.12*dt;
+    const fy=f.y+Math.sin(f.phase)*f.amp;
+    if(!f.got&&hit(dhb,{x:f.x,y:fy,w:f.w,h:f.h})){
+      f.got=true; score+=1; levelScore+=1;
+      for(let i=0;i<12;i++)particles.push({x:f.x+f.w/2,y:fy+f.h/2,vx:(Math.random()-.5)*6,vy:(Math.random()-.5)*6,life:28,c:f.c,r:2+Math.random()*3});
+      // Level-Aufstieg
+      if(level<LEVELS.length-1 && levelScore>=LEVELS[level].goal){
+        level++; levelScore=0; showLevelBanner();
+      }
+    }
+  });
+  flutters=flutters.filter(f=>f.x>-60&&!f.got);
+
+  particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=0.15*dt;p.life-=dt;});
+  particles=particles.filter(p=>p.life>0);
+}
+
+function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+
+function gameOver(type){
+  running=false;
+  if(score>best){best=score;localStorage.setItem('eselBest',best);}
+  document.getElementById('finalScore').innerHTML=score+'<small>Punkte</small>';
+  document.getElementById('best').textContent='Bestwert: '+best;
+  let msg;
+  if(type==='hippo'){
+    msg='Mucki hat dich erwischt hehehe muddltime';
+  }else if(type==='duck'){
+    const ducks=['Oh neeeein Rolando!','Espinoooza neeeein'];
+    msg=ducks[(Math.random()*ducks.length)|0];
+  }else{
+    msg='Der Esel ist gestolpert!';
+  }
+  document.getElementById('overMsg').textContent=msg;
+  overScr.classList.remove('hidden');
+}
+
+// ---------- drawing ----------
+function showLevelBanner(){
+  const L=LEVELS[level], b=document.getElementById('banner');
+  b.innerHTML=L.name+'<small>Level '+(level+1)+'</small>';
+  b.classList.remove('hidden');
+  requestAnimationFrame(()=>b.classList.add('show'));
+  clearTimeout(showLevelBanner._t);
+  showLevelBanner._t=setTimeout(()=>{
+    b.classList.remove('show');
+    setTimeout(()=>b.classList.add('hidden'),450);
+  },1600);
+}
+
+function drawBackground(dt){
+  const L=LEVELS[level];
+  const g=ctx.createLinearGradient(0,0,0,ground);
+  g.addColorStop(0,L.sky[0]);g.addColorStop(1,L.sky[1]);
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,ground);
+  // sun
+  ctx.fillStyle='#e8d5a0';ctx.globalAlpha=.85;ctx.beginPath();ctx.arc(W*0.82,H*0.16,42,0,7);ctx.fill();
+  ctx.globalAlpha=.24;ctx.beginPath();ctx.arc(W*0.82,H*0.16,58,0,7);ctx.fill();ctx.globalAlpha=1;
+  // clouds
+  clouds.forEach(c=>{
+    if(running)c.x-=c.s*(dt||1); if(c.x<-80){c.x=W+80;c.y=40+Math.random()*H*0.25;}
+    ctx.fillStyle=L.cloud;
+    ctx.beginPath();
+    ctx.arc(c.x,c.y,c.r,0,7);ctx.arc(c.x+c.r*0.9,c.y+4,c.r*0.8,0,7);
+    ctx.arc(c.x-c.r*0.9,c.y+5,c.r*0.7,0,7);ctx.fill();
+  });
+  drawLandmark(L.landmark);
+  // hills
+  ctx.fillStyle=L.hill;
+  ctx.beginPath();ctx.moveTo(0,ground);
+  for(let x=0;x<=W;x+=40)ctx.lineTo(x,ground-60-Math.sin((x+dist*0.3)*0.006)*40);
+  ctx.lineTo(W,ground);ctx.fill();
+  // ground
+  ctx.fillStyle=L.ground;ctx.fillRect(0,ground,W,H-ground);
+  ctx.fillStyle=L.groundDk;ctx.fillRect(0,ground,W,6);
+  // grass tufts scrolling
+  ctx.strokeStyle=L.groundDk;ctx.lineWidth=3;
+  const off=(dist*0.6)%40;
+  for(let x=-off;x<W;x+=40){
+    ctx.beginPath();ctx.moveTo(x,ground+18);ctx.lineTo(x-4,ground+8);ctx.moveTo(x,ground+18);ctx.lineTo(x,ground+6);ctx.moveTo(x,ground+18);ctx.lineTo(x+4,ground+9);ctx.stroke();
+  }
+  // bushes
+  bushes.forEach(b=>{
+    if(running)b.x-=speed*0.5*(dt||1); if(b.x<-60){b.x=W+40;b.s=0.5+Math.random()*0.6;}
+    const s=b.s;ctx.fillStyle=L.bush;
+    ctx.beginPath();ctx.arc(b.x,ground-6,22*s,0,7);ctx.arc(b.x+18*s,ground-2,16*s,0,7);ctx.arc(b.x-18*s,ground-2,15*s,0,7);ctx.fill();
+  });
+}
+
+// Landmarke je Land als Silhouette im Hintergrund
+function drawLandmark(kind){
+  if(kind==='alps'){
+    ctx.fillStyle='rgba(120,140,150,.45)';
+    [[0.3,140],[0.55,180],[0.78,150]].forEach(([p,h])=>{
+      const x=W*p, w=h*1.1;
+      ctx.beginPath();ctx.moveTo(x-w,ground-20);ctx.lineTo(x,ground-20-h);ctx.lineTo(x+w,ground-20);ctx.fill();
+    });
+    ctx.fillStyle='rgba(245,248,250,.65)';
+    [[0.3,140],[0.55,180],[0.78,150]].forEach(([p,h])=>{
+      const x=W*p;
+      ctx.beginPath();ctx.moveTo(x-34,ground-20-h+44);ctx.lineTo(x,ground-20-h);ctx.lineTo(x+34,ground-20-h+44);ctx.fill();
+    });
+  } else if(kind==='bigben'){
+    const x=W*0.68;
+    ctx.fillStyle='rgba(74,70,72,.5)';
+    ctx.fillRect(x-22,ground-250,44,250);
+    ctx.beginPath();ctx.moveTo(x-30,ground-250);ctx.lineTo(x,ground-300);ctx.lineTo(x+30,ground-250);ctx.fill();
+    ctx.fillStyle='rgba(232,213,160,.8)';ctx.beginPath();ctx.arc(x,ground-208,15,0,7);ctx.fill();
+    ctx.strokeStyle='rgba(74,70,72,.75)';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(x,ground-208);ctx.lineTo(x,ground-219);ctx.moveTo(x,ground-208);ctx.lineTo(x+9,ground-208);ctx.stroke();
+  } else if(kind==='fjord'){
+    ctx.fillStyle='rgba(108,128,136,.5)';
+    ctx.beginPath();ctx.moveTo(0,ground);ctx.lineTo(W*0.18,ground-270);ctx.lineTo(W*0.34,ground);ctx.fill();
+    ctx.beginPath();ctx.moveTo(W*0.6,ground);ctx.lineTo(W*0.82,ground-310);ctx.lineTo(W,ground-50);ctx.lineTo(W,ground);ctx.fill();
+    ctx.fillStyle='rgba(245,249,251,.75)';
+    ctx.beginPath();ctx.moveTo(W*0.13,ground-198);ctx.lineTo(W*0.18,ground-270);ctx.lineTo(W*0.23,ground-198);ctx.fill();
+    ctx.beginPath();ctx.moveTo(W*0.76,ground-230);ctx.lineTo(W*0.82,ground-310);ctx.lineTo(W*0.88,ground-230);ctx.fill();
+  } else if(kind==='fuji'){
+    const x=W*0.5;
+    ctx.fillStyle='rgba(150,120,140,.5)';
+    ctx.beginPath();ctx.moveTo(x-200,ground-30);ctx.quadraticCurveTo(x-60,ground-260,x,ground-270);
+    ctx.quadraticCurveTo(x+60,ground-260,x+200,ground-30);ctx.fill();
+    ctx.fillStyle='rgba(250,244,246,.8)';
+    ctx.beginPath();ctx.moveTo(x-48,ground-218);ctx.quadraticCurveTo(x,ground-272,x+48,ground-218);
+    ctx.quadraticCurveTo(x+20,ground-232,x,ground-228);ctx.quadraticCurveTo(x-20,ground-232,x-48,ground-218);ctx.fill();
+  }
+}
+
+function drawDonkey(){
+  const d=donkey, bounce=Math.sin(d.legPhase)*2, y=d.y+(d.onGround?bounce:0);
+  ctx.save();ctx.translate(d.x,y);
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,.12)';ctx.beginPath();ctx.ellipse(d.w/2,ground-y+4,26,7,0,0,7);ctx.fill();
+  // legs
+  ctx.strokeStyle='#8a7a63';ctx.lineWidth=7;ctx.lineCap='round';
+  const s=d.onGround?Math.sin(d.legPhase)*6:3;
+  ctx.beginPath();ctx.moveTo(16,d.h-12);ctx.lineTo(16+s,d.h+2);ctx.moveTo(46,d.h-12);ctx.lineTo(46-s,d.h+2);ctx.stroke();
+  // body
+  ctx.fillStyle='#b9a684';roundRect(6,18,52,30,14);ctx.fill();
+  // head
+  ctx.save();ctx.translate(50,14);
+  ctx.fillStyle='#b9a684';roundRect(-4,-6,26,26,10);ctx.fill();
+  // snout
+  ctx.fillStyle='#cbbb9a';roundRect(14,6,16,14,7);ctx.fill();
+  ctx.fillStyle='#5a4d3a';ctx.beginPath();ctx.arc(26,11,1.8,0,7);ctx.arc(21,11,1.8,0,7);ctx.fill();
+  // ears
+  ctx.fillStyle='#a8967a';
+  ctx.beginPath();ctx.moveTo(2,-4);ctx.lineTo(-6,-24);ctx.lineTo(8,-6);ctx.fill();
+  ctx.beginPath();ctx.moveTo(12,-4);ctx.lineTo(8,-26);ctx.lineTo(20,-6);ctx.fill();
+  ctx.fillStyle='#8a7a63';ctx.beginPath();ctx.moveTo(3,-6);ctx.lineTo(-3,-20);ctx.lineTo(7,-7);ctx.fill();
+  // eye
+  ctx.fillStyle='#33291f';ctx.beginPath();ctx.arc(8,4,2.6,0,7);ctx.fill();
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(9,3,1,0,7);ctx.fill();
+  ctx.restore();
+  // mane
+  ctx.strokeStyle='#7a6a52';ctx.lineWidth=4;
+  for(let i=0;i<4;i++){ctx.beginPath();ctx.moveTo(40-i*7,14);ctx.lineTo(38-i*7,4);ctx.stroke();}
+  // tail
+  ctx.strokeStyle='#8a7a63';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(6,26);ctx.quadraticCurveTo(-8,30,-6,44);ctx.stroke();
+  ctx.fillStyle='#7a6a52';ctx.beginPath();ctx.arc(-6,45,4,0,7);ctx.fill();
+  ctx.restore();
+}
+
+function drawObstacles(){
+  obstacles.forEach(o=>{
+    if(o.type==='duck')drawDuck(o); else drawHippo(o);
+  });
+}
+function drawDuck(o){
+  ctx.save();ctx.translate(o.x,o.y);
+  ctx.fillStyle='rgba(0,0,0,.12)';ctx.beginPath();ctx.ellipse(20,ground-o.y+2,20,6,0,0,7);ctx.fill();
+  // Körper: graubraun (Erpel)
+  ctx.fillStyle='#a9a08c';ctx.beginPath();ctx.ellipse(20,24,20,15,0,0,7);ctx.fill();
+  // Hinterteil dunkler
+  ctx.fillStyle='#5a5140';ctx.beginPath();ctx.ellipse(6,22,9,9,0,0,7);ctx.fill();
+  // braune Brust
+  ctx.fillStyle='#8a5a3c';ctx.beginPath();ctx.ellipse(30,26,10,11,0,0,7);ctx.fill();
+  // wing flap
+  const wf=Math.sin(o.phase*(o.flying?3:1.5))*(o.flying?10:4);
+  ctx.fillStyle='#948b78';ctx.beginPath();ctx.ellipse(18,22,11,7,-0.3-wf*0.03,0,7);ctx.fill();
+  // Flügelspiegel (blau-violett)
+  ctx.fillStyle='#3f6fa0';ctx.beginPath();ctx.ellipse(14,24,4,3,-0.3,0,7);ctx.fill();
+  // schillernd grüner Kopf
+  ctx.fillStyle='#1f7a45';ctx.beginPath();ctx.arc(36,12,10,0,7);ctx.fill();
+  ctx.fillStyle='rgba(90,200,140,.35)';ctx.beginPath();ctx.arc(38,9,5,0,7);ctx.fill();
+  // weißer Halsring
+  ctx.strokeStyle='#f2ede2';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(30,20,7,-0.6,1.9);ctx.stroke();
+  // gelber Schnabel
+  ctx.fillStyle='#e8c33a';ctx.beginPath();ctx.moveTo(44,10);ctx.lineTo(54,13);ctx.lineTo(44,16);ctx.fill();
+  // eye
+  ctx.fillStyle='#1a140e';ctx.beginPath();ctx.arc(38,10,1.8,0,7);ctx.fill();
+  // orange Beine (nur am Boden)
+  if(!o.flying){ctx.strokeStyle='#e8862b';ctx.lineWidth=3;const l=Math.sin(o.phase*1.5)*4;
+    ctx.beginPath();ctx.moveTo(16,38);ctx.lineTo(16+l,46);ctx.moveTo(26,38);ctx.lineTo(26-l,46);ctx.stroke();}
+  ctx.restore();
+}
+function drawHippo(o){
+  ctx.save();ctx.translate(o.x,o.y);
+  ctx.fillStyle='rgba(0,0,0,.15)';ctx.beginPath();ctx.ellipse(60,ground-o.y+2,54,8,0,0,7);ctx.fill();
+  // spiegeln: Kopf nach links (entgegenkommend)
+  ctx.translate(120,0);ctx.scale(-1,1);
+  const sway=Math.sin(o.phase)*2;
+  // legs
+  ctx.fillStyle='#8a6ea0';roundRect(18,54,16,20,5);ctx.fill();roundRect(78,54,16,20,5);ctx.fill();
+  // body
+  ctx.fillStyle='#9a7cb0';roundRect(6,20,100,44,22);ctx.fill();
+  // head
+  ctx.save();ctx.translate(88,18+sway);
+  ctx.fillStyle='#9a7cb0';roundRect(0,4,42,40,16);ctx.fill();
+  // snout
+  ctx.fillStyle='#b298c4';roundRect(24,26,26,20,10);ctx.fill();
+  ctx.fillStyle='#6f5484';ctx.beginPath();ctx.arc(34,34,2.4,0,7);ctx.arc(44,34,2.4,0,7);ctx.fill();
+  // ears
+  ctx.fillStyle='#8a6ea0';ctx.beginPath();ctx.arc(6,4,6,0,7);ctx.arc(24,2,6,0,7);ctx.fill();
+  // eyes
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(12,14,5,0,7);ctx.arc(26,14,5,0,7);ctx.fill();
+  ctx.fillStyle='#33291f';ctx.beginPath();ctx.arc(13,15,2.4,0,7);ctx.arc(27,15,2.4,0,7);ctx.fill();
+  // angry brow
+  ctx.strokeStyle='#5f4574';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(6,6);ctx.lineTo(16,10);ctx.moveTo(32,10);ctx.lineTo(22,6);ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawFlutters(){
+  flutters.forEach(f=>{
+    const y=f.y+Math.sin(f.phase)*f.amp;
+    ctx.save();ctx.translate(f.x+f.w/2,y+f.h/2);
+    const wing=Math.abs(Math.sin(f.phase*4));
+    ctx.fillStyle=f.c;
+    // upper wings
+    ctx.save();ctx.scale(0.6+wing*0.4,1);
+    ctx.beginPath();ctx.ellipse(-9,-5,9,11,0,0,7);ctx.ellipse(9,-5,9,11,0,0,7);ctx.fill();
+    // lower wings
+    ctx.globalAlpha=.85;ctx.beginPath();ctx.ellipse(-8,8,7,8,0,0,7);ctx.ellipse(8,8,7,8,0,0,7);ctx.fill();
+    ctx.restore();
+    // spots
+    ctx.globalAlpha=.5;ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(-9,-5,3,0,7);ctx.arc(9,-5,3,0,7);ctx.fill();ctx.globalAlpha=1;
+    // body
+    ctx.fillStyle='#33291f';roundRect(-2,-11,4,22,2);ctx.fill();
+    // antennae
+    ctx.strokeStyle='#33291f';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(-1,-10);ctx.lineTo(-5,-16);ctx.moveTo(1,-10);ctx.lineTo(5,-16);ctx.stroke();
+    ctx.restore();
+  });
+}
+
+function drawParticles(){
+  particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life/28);ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();});
+  ctx.globalAlpha=1;
+}
+
+function drawHUD(){
+  const L=LEVELS[level];
+  ctx.fillStyle='rgba(28,24,20,.7)';roundRect(14,14,120,44,10);ctx.fill();
+  ctx.fillStyle='#f2ede2';ctx.font='800 26px Trebuchet MS,sans-serif';ctx.textBaseline='middle';ctx.textAlign='left';
+  ctx.fillText('🦋 '+score,26,38);
+  // Land rechts
+  ctx.fillStyle='rgba(28,24,20,.7)';roundRect(W-146,14,132,44,10);ctx.fill();
+  ctx.fillStyle='#f2ede2';ctx.font='800 19px Trebuchet MS,sans-serif';ctx.textAlign='right';
+  ctx.fillText(L.name,W-24,38);
+  ctx.textAlign='left';
+}
+
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+document.getElementById('best').textContent='Bestwert: '+best;
+
+// Service Worker für Offline-Betrieb (Homescreen-App)
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
