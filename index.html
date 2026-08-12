@@ -61,6 +61,13 @@
   .final{font-size:clamp(30px,9vw,54px);font-weight:900;color:#f2ede2;text-shadow:0 2px 0 rgba(0,0,0,.3);}
   .final small{display:block;font-size:.36em;font-weight:700;color:var(--sun);letter-spacing:4px;text-transform:uppercase;margin-top:8px;}
   .hint{color:#e6dfd2;font-size:12px;letter-spacing:3px;text-transform:uppercase;opacity:.7;font-weight:700;}
+  .stats{display:flex;gap:14px;}
+  .stat{
+    background:rgba(28,24,20,.72);border:1px solid rgba(242,237,226,.15);border-radius:12px;
+    padding:10px 22px;min-width:96px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.28);
+  }
+  .stat b{display:block;font-size:30px;font-weight:900;color:#f2ede2;line-height:1;}
+  .stat span{display:block;margin-top:5px;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--sun);font-weight:700;}
   .banner{
     position:fixed;top:34%;left:50%;transform:translate(-50%,-50%) scale(.8);
     padding:18px 34px;border-radius:12px;background:rgba(28,24,20,.82);
@@ -85,6 +92,10 @@
     <p><span class="emoji">🦋</span> Nur gefangene <b>Schmetterlinge</b> geben Punkte.</p>
   </div>
   <button class="btn" id="startBtn">Los geht's</button>
+  <div class="stats" id="startStats">
+    <div class="stat"><b id="statBest">0</b><span>Rekord</span></div>
+    <div class="stat"><b id="statLast">–</b><span>Zuletzt</span></div>
+  </div>
   <div class="hint">Tippen = Springen</div>
 </div>
 
@@ -107,29 +118,29 @@ function resize(){
 addEventListener('resize',resize); resize();
 
 // ---------- state ----------
-let running=false, score=0, best=+localStorage.getItem('eselBest')||0, dist=0, speed, spawnT, flyT;
+let running=false, score=0, best=+localStorage.getItem('eselBest')||0, lastScore=+localStorage.getItem('eselLast')||0, dist=0, speed, spawnT, flyT;
 let level=0, levelScore=0;
 const startScr=document.getElementById('start'), overScr=document.getElementById('over');
 
 // Länder-Level: eigene Palette, Landmarke und Schwierigkeit.
 // hippoP = Hippo-Wahrscheinlichkeit, spd = Tempo-Deckel, gap = Hindernis-Grundabstand
 const LEVELS=[
-  { name:'Österreich', goal:8, hippoP:0.20, spd:8.0, gap:150,
+  { name:'Österreich', goal:8, hippoP:0.20, spd:7.0, gap:150,
     sky:['#7ba8c9','#cfe0c4'], hill:'#6d9152', ground:'#5a7d4a', groundDk:'#42603a',
     bush:'#537445', cloud:'rgba(238,235,226,.82)', landmark:'alps' },
-  { name:'London', goal:10, hippoP:0.24, spd:8.6, gap:145,
+  { name:'London', goal:10, hippoP:0.24, spd:7.4, gap:150,
     sky:['#8a93a0','#c2c4c0'], hill:'#7a8a86', ground:'#6b6f68', groundDk:'#50544e',
     bush:'#5f6b60', cloud:'rgba(220,222,224,.85)', landmark:'bigben' },
-  { name:'Norwegen', goal:12, hippoP:0.28, spd:9.2, gap:140,
+  { name:'Norwegen', goal:12, hippoP:0.26, spd:7.8, gap:145,
     sky:['#9fc4d8','#e8f1f4'], hill:'#8fb0b8', ground:'#e4ecef', groundDk:'#b9c9cf',
     bush:'#7c9aa0', cloud:'rgba(245,249,251,.9)', landmark:'fjord' },
-  { name:'Japan', goal:14, hippoP:0.32, spd:9.8, gap:135,
+  { name:'Japan', goal:14, hippoP:0.28, spd:8.2, gap:145,
     sky:['#e6a9b8','#f6e0d6'], hill:'#c98a9a', ground:'#d9a98f', groundDk:'#b3826a',
     bush:'#c47d8e', cloud:'rgba(250,238,240,.88)', landmark:'fuji' },
-  { name:'Happy Birthday', goal:16, hippoP:0.28, spd:9.6, gap:140,
+  { name:'Happy Birthday', goal:16, hippoP:0.26, spd:8.2, gap:145,
     sky:['#b57edc','#ffd9ec'], hill:'#c98fd8', ground:'#e6b8d8', groundDk:'#c48fb8',
     bush:'#d68fc4', cloud:'rgba(255,244,250,.9)', landmark:'party' },
-  { name:'Love Mode', goal:99, hippoP:0.72, spd:11.0, gap:105,
+  { name:'Love Mode', goal:99, hippoP:0.72, spd:10.2, gap:105,
     sky:['#ff8fb0','#ffd9e6'], hill:'#e87ba0', ground:'#f4b8d0', groundDk:'#d88fb0',
     bush:'#ef9abc', cloud:'rgba(255,240,246,.9)', landmark:'hearts' },
 ];
@@ -244,7 +255,7 @@ function update(dt){
 
   obstacles.forEach(o=>{
     // Hippos kommen dem Esel entgegen -> zusätzlicher Eigenspeed
-    const extra = o.type==='hippo' ? 2.0 : 0;
+    const extra = o.type==='hippo' ? 0.8 : 0;
     o.x-=(speed+extra)*dt; o.phase+=0.2*dt;
     if(o.type==='duck'&&o.flying)o.y=(ground-120)+Math.sin(o.phase)*10;
     if(o.type==='hippo')o.phase+=0.05*dt;
@@ -276,6 +287,7 @@ function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function gameOver(type){
   running=false;
   if(score>best){best=score;localStorage.setItem('eselBest',best);}
+  lastScore=score; localStorage.setItem('eselLast',score);
   document.getElementById('finalScore').innerHTML=score+'<small>Punkte</small>';
   document.getElementById('best').textContent='Bestwert: '+best;
   let msg;
@@ -289,6 +301,7 @@ function gameOver(type){
   }
   document.getElementById('overMsg').textContent=msg;
   overScr.classList.remove('hidden');
+  refreshStartStats();
 }
 
 // ---------- drawing ----------
@@ -575,7 +588,13 @@ function drawHUD(){
 
 function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
 
-document.getElementById('best').textContent='Bestwert: '+best;
+function refreshStartStats(){
+  document.getElementById('best').textContent='Bestwert: '+best;
+  const sb=document.getElementById('statBest'), sl=document.getElementById('statLast');
+  if(sb) sb.textContent=best;
+  if(sl) sl.textContent = lastScore>0 ? lastScore : '–';
+}
+refreshStartStats();
 
 // Service Worker für Offline-Betrieb (Homescreen-App)
 if('serviceWorker' in navigator){
